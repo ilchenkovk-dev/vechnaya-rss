@@ -17,70 +17,70 @@ jobs:
 
       - name: Install dependencies
         run: pip install requests beautifulsoup4
-      - name: Generate RSS
+            - name: Generate RSS
         run: |
           python << 'EOF'
-import requests
-from bs4 import BeautifulSoup
-from xml.sax.saxutils import escape
+          import requests
+          from bs4 import BeautifulSoup
+          from xml.sax.saxutils import escape
 
-url = "https://www.vechnayamolodost.ru/news/"
-html = requests.get(url).text
+          url = "https://www.vechnayamolodost.ru/news/"
+          html = requests.get(url).text
 
-soup = BeautifulSoup(html, "html.parser")
+          soup = BeautifulSoup(html, "html.parser")
 
-seen = set()
-items = []
+          seen = set()
+          items = []
 
-for a in soup.select('a[href*="/news/"]'):
-    title = a.get_text(strip=True)
-    href = a.get("href")
+          for a in soup.select('a[href*="/news/"]'):
+              title = a.get_text(strip=True)
+              href = a.get("href")
 
-    if not title or not href:
-        continue
+              if not title or not href:
+                  continue
 
-    if href.startswith("/"):
-        href = "https://www.vechnayamolodost.ru" + href
+              if href.startswith("/"):
+                  href = "https://www.vechnayamolodost.ru" + href
 
-    if href in seen:
-        continue
+              if href in seen:
+                  continue
 
-    seen.add(href)
+              seen.add(href)
 
-    desc = ""
+              desc = ""
 
-    try:
-        art_html = requests.get(href, timeout=10).text
-        art = BeautifulSoup(art_html, "html.parser")
+              try:
+                  art_html = requests.get(href, timeout=10).text
+                  art = BeautifulSoup(art_html, "html.parser")
 
-        p = art.find("p")
-        if p:
-            desc = p.get_text(strip=True)
-    except:
-        pass
+                  p = art.find("p")
+                  if p:
+                      desc = p.get_text(strip=True)
+              except:
+                  pass
 
-    items.append(f"""
-    <item>
-    <title>{escape(title)}</title>
-    <link>{escape(href)}</link>
-    <description>{escape(desc)}</description>
-    </item>
-    """)
+              items.append(f"""
+              <item>
+              <title>{escape(title)}</title>
+              <link>{escape(href)}</link>
+              <description>{escape(desc)}</description>
+              </item>
+              """)
 
-rss = f'''<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0">
-<channel>
-<title>Вечная молодость</title>
-<link>https://www.vechnayamolodost.ru/news/</link>
-<description>Новости</description>
-{''.join(items[:50])}
-</channel>
-</rss>'''
+          rss = f'''<?xml version="1.0" encoding="UTF-8"?>
+          <rss version="2.0">
+          <channel>
+          <title>Вечная молодость</title>
+          <link>https://www.vechnayamolodost.ru/news/</link>
+          <description>Новости</description>
+          {''.join(items[:50])}
+          </channel>
+          </rss>'''
 
-with open("feed.xml", "w", encoding="utf-8") as f:
-    f.write(rss)
+          with open("feed.xml", "w", encoding="utf-8") as f:
+              f.write(rss)
 
-EOF
+          EOF
       - name: Commit changes
         run: |
           git config user.name github-actions
