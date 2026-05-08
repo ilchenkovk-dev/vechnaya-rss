@@ -48,13 +48,25 @@ jobs:
 
               seen.add(href)
 
-              items.append(f"""
-              <item>
-              <title>{escape(title)}</title>
-              <link>{escape(href)}</link>
-              </item>
-              """)
+img = ""
 
+image = a.find_previous("img") or a.find_next("img")
+
+if image and image.get("src"):
+    src = image.get("src")
+
+    if src.startswith("/"):
+        src = "https://www.vechnayamolodost.ru" + src
+
+    img = f'<description><![CDATA[<img src="{src}"/>]]></description>'
+
+items.append(f"""
+<item>
+<title>{escape(title)}</title>
+<link>{escape(href)}</link>
+{img}
+</item>
+""")
           rss = f'''<?xml version="1.0" encoding="UTF-8"?>
           <rss version="2.0">
           <channel>
