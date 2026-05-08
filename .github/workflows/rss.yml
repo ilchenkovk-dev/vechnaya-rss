@@ -13,25 +13,34 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Install dependencies
         run: pip install requests beautifulsoup4
-            - name: Generate RSS
+
+      - name: Generate RSS
         run: |
           python << 'EOF'
           import requests
           from bs4 import BeautifulSoup
           from xml.sax.saxutils import escape
 
-          url = "https://www.vechnayamolodost.ru/news/"
-          html = requests.get(url).text
+          url = "https://vechnayamolodost.ru"
+          try:
+              response = requests.get(url, timeout=15)
+              response.raise_for_status()
+              html = response.text
+          except Exception as e:
+              print(f"Error fetching main page: {e}")
+              exit(1)
 
           soup = BeautifulSoup(html, "html.parser")
 
           seen = set()
           items = []
 
+          # Ищем ссылки на новости
           for a in soup.select('a[href*="/news/"]'):
               title = a.get_text(strip=True)
               href = a.get("href")
@@ -40,7 +49,7 @@ jobs:
                   continue
 
               if href.startswith("/"):
-                  href = "https://www.vechnayamolodost.ru" + href
+                  href = "https://vechnayamolodost.ru" + href
 
               if href in seen:
                   continue
@@ -48,11 +57,9 @@ jobs:
               seen.add(href)
 
               desc = ""
-
               try:
                   art_html = requests.get(href, timeout=10).text
                   art = BeautifulSoup(art_html, "html.parser")
-
                   p = art.find("p")
                   if p:
                       desc = p.get_text(strip=True)
@@ -61,30 +68,30 @@ jobs:
 
               items.append(f"""
               <item>
-              <title>{escape(title)}</title>
-              <link>{escape(href)}</link>
-              <description>{escape(desc)}</description>
+                <title>{escape(title)}</title>
+                <link>{escape(href)}</link>
+                <description>{escape(desc)}</description>
               </item>
               """)
 
           rss = f'''<?xml version="1.0" encoding="UTF-8"?>
           <rss version="2.0">
-          <channel>
-          <title>Вечная молодость</title>
-          <link>https://www.vechnayamolodost.ru/news/</link>
-          <description>Новости</description>
-          {''.join(items[:50])}
-          </channel>
+            <channel>
+              <title>Вечная молодость</title>
+              <link>https://vechnayamolodost.ru</link>
+              <description>Новости</description>
+              {''.join(items[:50])}
+            </channel>
           </rss>'''
 
           with open("feed.xml", "w", encoding="utf-8") as f:
               f.write(rss)
-
           EOF
+
       - name: Commit changes
         run: |
           git config user.name github-actions
           git config user.email github-actions@github.com
           git add feed.xml
-          git commit -m "Update RSS" || echo "No changes"
+          git commit -m "Update RSS" || echo "No changes to commit"
           git push
