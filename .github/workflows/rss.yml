@@ -1,0 +1,79 @@
+name: Update RSS
+
+on:
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4
+
+      - name: Generate RSS
+        run: |
+          python << 'EOF'
+          import requests
+          from bs4 import BeautifulSoup
+          from xml.sax.saxutils import escape
+
+          url = "https://www.vechnayamolodost.ru/news/"
+          html = requests.get(url).text
+
+          soup = BeautifulSoup(html, "html.parser")
+
+          seen = set()
+          items = []
+
+          for a in soup.select('a[href*="/news/"]'):
+              title = a.get_text(strip=True)
+              href = a.get("href")
+
+              if not title or not href:
+                  continue
+
+              if href.startswith("/"):
+                  href = "https://www.vechnayamolodost.ru" + href
+
+              if href in seen:
+                  continue
+
+              seen.add(href)
+
+              items.append(f"""
+              <item>
+              <title>{escape(title)}</title>
+              <link>{escape(href)}</link>
+              </item>
+              """)
+
+          rss = f'''<?xml version="1.0" encoding="UTF-8"?>
+          <rss version="2.0">
+          <channel>
+          <title>Вечная молодость</title>
+          <link>https://www.vechnayamolodost.ru/news/</link>
+          <description>Новости</description>
+          {''.join(items[:50])}
+          </channel>
+          </rss>'''
+
+          with open("feed.xml", "w", encoding="utf-8") as f:
+              f.write(rss)
+
+          EOF
+
+      - name: Commit changes
+        run: |
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add feed.xml
+          git commit -m "Update RSS" || echo "No changes"
+          git push
