@@ -33,40 +33,40 @@ jobs:
           seen = set()
           items = []
 
-          for a in soup.select('a[href*="/news/"]'):
-              title = a.get_text(strip=True)
-              href = a.get("href")
+for a in soup.select('a[href*="/news/"]'):
+    title = a.get_text(strip=True)
+    href = a.get("href")
 
-              if not title or not href:
-                  continue
+    if not title or not href:
+        continue
 
-              if href.startswith("/"):
-                  href = "https://www.vechnayamolodost.ru" + href
+    if href.startswith("/"):
+        href = "https://www.vechnayamolodost.ru" + href
 
-              if href in seen:
-                  continue
+    if href in seen:
+        continue
 
-              seen.add(href)
+    seen.add(href)
 
-              img = ""
+    desc = ""
 
-              image = a.find_previous("img") or a.find_next("img")
+    try:
+        art_html = requests.get(href, timeout=10).text
+        art = BeautifulSoup(art_html, "html.parser")
 
-              if image and image.get("src"):
-                  src = image.get("src")
+        p = art.find("p")
+        if p:
+            desc = p.get_text(strip=True)
+    except:
+        pass
 
-                  if src.startswith("/"):
-                      src = "https://www.vechnayamolodost.ru" + src
-
-                  img = f'<description><![CDATA[<img src="{src}"/>]]></description>'
-
-              items.append(f"""
-              <item>
-              <title>{escape(title)}</title>
-              <link>{escape(href)}</link>
-              {img}
-              </item>
-              """)
+    items.append(f"""
+    <item>
+    <title>{escape(title)}</title>
+    <link>{escape(href)}</link>
+    <description>{escape(desc)}</description>
+    </item>
+    """)
           
           rss = f'''<?xml version="1.0" encoding="UTF-8"?>
           <rss version="2.0">
