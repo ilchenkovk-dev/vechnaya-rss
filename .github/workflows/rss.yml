@@ -11,6 +11,7 @@ permissions:
 jobs:
   update:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -26,7 +27,10 @@ jobs:
           from xml.sax.saxutils import escape
           import time
 
-          headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+          # Заголовки, чтобы сайт не блокировал скрипт
+          headers = {
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+          }
           base_url = "https://vechnayamolodost.ru"
           
           try:
@@ -40,11 +44,11 @@ jobs:
           seen = set()
           items = []
 
-          # Находим ссылки на новости
+          # Ищем ссылки на новости
           links = soup.select('a[href*="/news/"]')
           
           for a in links:
-              if len(items) >= 20: # Ограничим до 20 последних, чтобы не спамить запросами
+              if len(items) >= 20:  # Ограничим до 20 последних записей
                   break
                   
               title = a.get_text(strip=True)
@@ -59,20 +63,31 @@ jobs:
 
               seen.add(href)
               
-              # Небольшая пауза, чтобы сайт не заблокировал
-              time.sleep(1) 
+              # Пауза 1 сек между запросами, чтобы не забанили
+              time.sleep(1)
 
               desc = ""
               try:
                   art_res = requests.get(href, headers=headers, timeout=10)
+                  art_res.raise_for_status()
                   art_soup = BeautifulSoup(art_res.text, "html.parser")
-                  # Пытаемся взять текст именно из контента статьи (обычно это тег <article> или класс)
-                  text_blocks = art_soup.get_text(" ", strip=True).split()
-                  candidate = " ".join(text_blocks[:60])
-                  if len(candidate) > 80:
-                      desc = candidate + "..."
-              except:
-                  pass
+                  
+                  # Ищем контент в основном блоке (на этом сайте это часто div с классом text)
+                  content_area = art_soup.find('div', class_='text') or art_soup.find('article')
+                  
+                  if content_area:
+                      # Собираем текст из абзацев <p>
+                      paragraphs = content_area.find_all('p')
+                      if paragraphs:
+                          text_parts = [p.get_text(strip=True) for p in paragraphs if p.get_text(strip=True)]
+                          full_text = " ".join(text_parts)
+                          desc = full_text[:400] + "..." if len(full_text) > 400 else full_text
+                      else:
+                          # Если абзацев нет, просто берем очищенный текст
+                          raw_text = content_area.get_text(" ", strip=True)
+                          desc = raw_text[:350] + "..."
+              except Exception as e:
+                  print(f"Could not fetch description for {href}: {e}")
 
               items.append(f"""
               <item>
@@ -87,7 +102,7 @@ jobs:
             <channel>
               <title>Вечная молодость</title>
               <link>{base_url}</link>
-              <description>Новости науки и медицины</description>
+              <description>Новости науки и долголетия</description>
               {''.join(items)}
             </channel>
           </rss>'''
@@ -101,5 +116,5 @@ jobs:
           git config user.name github-actions
           git config user.email github-actions@github.com
           git add feed.xml
-          git commit -m "Update RSS" || echo "No changes to commit"
+          git commit -m "Update RSS content" || echo "No changes to commit"
           git push
