@@ -37,22 +37,21 @@ jobs:
               response.raise_for_status()
               soup = BeautifulSoup(response.text, "html.parser")
           except Exception as e:
-              print(f"Error: {e}")
+              print(f"Error fetching main page: {e}")
               exit(1)
 
           seen = set()
           items = []
-          # Собираем ссылки на новости
           links = soup.select('a[href*="/news/"]')
           
           for a in links:
-              if len(items) >= 15: # 15 свежих новостей достаточно для RSS
+              if len(items) >= 20:
                   break
                   
               title = a.get_text(strip=True)
               href = a.get("href")
 
-              if not title or not href or "/news/" not in href:
+              if not title or not href:
                   continue
               if href.startswith("/"):
                   href = base_url + href
@@ -60,49 +59,54 @@ jobs:
                   continue
               seen.add(href)
               
-              time.sleep(1) # Вежливая пауза
+              time.sleep(1)
               desc = ""
               try:
                   art_res = requests.get(href, headers=headers, timeout=10)
                   art_soup = BeautifulSoup(art_res.text, "html.parser")
                   
-                  # Находим заголовок статьи. Текст новости обычно идет сразу после него.
+                  # Удаляем мусорные элементы из структуры страницы перед поиском текста
+                  for trash in art_soup.find_all(['nav', 'header', 'footer', 'script', 'style', 'aside']):
+                      trash.decompose()
+
+                  # Ищем заголовок, текст новости обычно идет в том же контейнере после него
                   article_title = art_soup.find('h1')
                   if article_title:
-                      # Ищем все абзацы в том же контейнере, где и заголовок
-                      paragraphs = article_title.find_parent().find_all('p')
-                      text_content = []
-                      for p in paragraphs:
-                          txt = p.get_text(strip=True)
-                          if txt and len(txt) > 20: # Игнорируем слишком короткие строки
-                              text_content.append(txt)
-                      
-                      full_text = " ".join(text_content)
+                      parent = article_title.find_parent()
+                      # Собираем абзацы, которые длиннее 20 символов
+                      paragraphs = [p.get_text(strip=True) for p in parent.find_all('p') if len(p.get_text(strip=True)) > 20]
+                      full_text = " ".join(paragraphs)
                       if len(full_text) > 10:
-                          desc = full_text[:400] + "..."
+                          desc = full_text[:500] + "..."
                   
-                  # Если через h1 не вышло, ищем по классу (запасной вариант)
+                  # Запасной вариант по классу контента
                   if not desc:
                       content = art_soup.find('div', class_='text')
                       if content:
-                          desc = content.get_text(" ", strip=True)[:400] + "..."
+                          desc = content.get_text(" ", strip=True)[:450] + "..."
               except:
                   pass
 
               if desc:
+                  # Формируем дату в формате RSS (RFC 822)
+                  pub_date = time.strftime("%a, %d %b %Y %H:%M:%S +0000", time.gmtime())
+                  
                   items.append(f"""
               <item>
                 <title>{escape(title)}</title>
                 <link>{escape(href)}</link>
-                <description>{escape(desc)}</description>
+                <description><![CDATA[{desc}]]></description>
+                <guid isPermaLink="true">{escape(href)}</guid>
+                <pubDate>{pub_date}</pubDate>
               </item>""")
 
           rss = f'''<?xml version="1.0" encoding="UTF-8"?>
-          <rss version="2.0">
+          <rss version="2.0" xmlns:atom="http://w3.org">
             <channel>
               <title>Вечная молодость</title>
               <link>{base_url}</link>
               <description>Новости науки и медицины</description>
+              <language>ru</language>
               {''.join(items)}
             </channel>
           </rss>'''
@@ -116,5 +120,5 @@ jobs:
           git config user.name github-actions
           git config user.email github-actions@github.com
           git add feed.xml
-          git commit -m "Fix RSS description" || echo "No changes"
+          git commit -m "Full RSS update with CDATA and GUID" || echo "No changes to commit"
           git push
