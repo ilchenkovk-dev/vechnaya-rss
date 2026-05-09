@@ -27,7 +27,6 @@ jobs:
           from xml.sax.saxutils import escape
           import time
 
-          # Заголовки, чтобы сайт не блокировал скрипт
           headers = {
               "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
           }
@@ -38,71 +37,72 @@ jobs:
               response.raise_for_status()
               soup = BeautifulSoup(response.text, "html.parser")
           except Exception as e:
-              print(f"Error fetching main page: {e}")
+              print(f"Error: {e}")
               exit(1)
 
           seen = set()
           items = []
-
-          # Ищем ссылки на новости
+          # Собираем ссылки на новости
           links = soup.select('a[href*="/news/"]')
           
           for a in links:
-              if len(items) >= 20:  # Ограничим до 20 последних записей
+              if len(items) >= 15: # 15 свежих новостей достаточно для RSS
                   break
                   
               title = a.get_text(strip=True)
               href = a.get("href")
 
-              if not title or not href:
+              if not title or not href or "/news/" not in href:
                   continue
               if href.startswith("/"):
                   href = base_url + href
               if href in seen:
                   continue
-
               seen.add(href)
               
-              # Пауза 1 сек между запросами, чтобы не забанили
-              time.sleep(1)
-
+              time.sleep(1) # Вежливая пауза
               desc = ""
               try:
                   art_res = requests.get(href, headers=headers, timeout=10)
-                  art_res.raise_for_status()
                   art_soup = BeautifulSoup(art_res.text, "html.parser")
                   
-                  # Ищем контент в основном блоке (на этом сайте это часто div с классом text)
-                  content_area = art_soup.find('div', class_='text') or art_soup.find('article')
+                  # Находим заголовок статьи. Текст новости обычно идет сразу после него.
+                  article_title = art_soup.find('h1')
+                  if article_title:
+                      # Ищем все абзацы в том же контейнере, где и заголовок
+                      paragraphs = article_title.find_parent().find_all('p')
+                      text_content = []
+                      for p in paragraphs:
+                          txt = p.get_text(strip=True)
+                          if txt and len(txt) > 20: # Игнорируем слишком короткие строки
+                              text_content.append(txt)
+                      
+                      full_text = " ".join(text_content)
+                      if len(full_text) > 10:
+                          desc = full_text[:400] + "..."
                   
-                  if content_area:
-                      # Собираем текст из абзацев <p>
-                      paragraphs = content_area.find_all('p')
-                      if paragraphs:
-                          text_parts = [p.get_text(strip=True) for p in paragraphs if p.get_text(strip=True)]
-                          full_text = " ".join(text_parts)
-                          desc = full_text[:400] + "..." if len(full_text) > 400 else full_text
-                      else:
-                          # Если абзацев нет, просто берем очищенный текст
-                          raw_text = content_area.get_text(" ", strip=True)
-                          desc = raw_text[:350] + "..."
-              except Exception as e:
-                  print(f"Could not fetch description for {href}: {e}")
+                  # Если через h1 не вышло, ищем по классу (запасной вариант)
+                  if not desc:
+                      content = art_soup.find('div', class_='text')
+                      if content:
+                          desc = content.get_text(" ", strip=True)[:400] + "..."
+              except:
+                  pass
 
-              items.append(f"""
+              if desc:
+                  items.append(f"""
               <item>
                 <title>{escape(title)}</title>
                 <link>{escape(href)}</link>
                 <description>{escape(desc)}</description>
-              </item>
-              """)
+              </item>""")
 
           rss = f'''<?xml version="1.0" encoding="UTF-8"?>
           <rss version="2.0">
             <channel>
               <title>Вечная молодость</title>
               <link>{base_url}</link>
-              <description>Новости науки и долголетия</description>
+              <description>Новости науки и медицины</description>
               {''.join(items)}
             </channel>
           </rss>'''
@@ -116,5 +116,5 @@ jobs:
           git config user.name github-actions
           git config user.email github-actions@github.com
           git add feed.xml
-          git commit -m "Update RSS content" || echo "No changes to commit"
+          git commit -m "Fix RSS description" || echo "No changes"
           git push
