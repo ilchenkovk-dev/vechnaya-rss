@@ -60,9 +60,14 @@ jobs:
               try:
                   art_html = requests.get(href, timeout=10).text
                   art = BeautifulSoup(art_html, "html.parser")
-                  p = art.find("p")
-                  if p:
-                      desc = p.get_text(strip=True)
+                  
+                  paragraphs = art.find_all("p")
+
+                  for p in paragraphs:
+                      text = p.get_text(strip=True)
+                      if len(text) > 60:
+                          desc = text
+                          break
               except:
                   pass
 
