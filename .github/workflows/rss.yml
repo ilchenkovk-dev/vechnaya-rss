@@ -61,13 +61,12 @@ jobs:
                   art_html = requests.get(href, timeout=10).text
                   art = BeautifulSoup(art_html, "html.parser")
                   
-                  paragraphs = art.find_all("p")
+                  text_blocks = art.get_text(" ", strip=True).split(" ")
 
-                  for p in paragraphs:
-                      text = p.get_text(strip=True)
-                      if len(text) > 60:
-                          desc = text
-                          break
+                  candidate = " ".join(text_blocks[:60])
+
+                 if len(candidate) > 80:
+                     desc = candidate
               except:
                   pass
 
