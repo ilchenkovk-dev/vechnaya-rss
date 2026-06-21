@@ -85,7 +85,9 @@ jobs:
                       if content:
                           desc = content.get_text(" ", strip=True)[:450] + "..."
               except:
-                  pass
+                  except Exception as e:
+                      print("ARTICLE FETCH FAILED")
+                      print(repr(e))
 
               if desc:
                   # Формируем дату в формате RSS (RFC 822)
