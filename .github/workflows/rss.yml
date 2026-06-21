@@ -123,4 +123,4 @@ jobs:
           git config user.email github-actions@github.com
           git add feed.xml
           git commit -m "Full RSS update with CDATA and GUID" || echo "No changes to commit"
-          git push
+          git push || (echo "PUSH FAILED" && git status && exit 1)
