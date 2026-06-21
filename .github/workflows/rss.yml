@@ -37,7 +37,11 @@ jobs:
               response.raise_for_status()
               soup = BeautifulSoup(response.text, "html.parser")
           except Exception as e:
-              print(f"Error fetching main page: {e}")
+              import traceback
+              print("FETCH MAIN PAGE FAILED")
+              print("TYPE:", type(e))
+              print("REPR:", repr(e))
+              traceback.print_exc()
               exit(1)
 
           seen = set()
