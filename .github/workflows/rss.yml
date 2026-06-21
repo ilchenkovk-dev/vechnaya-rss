@@ -17,125 +17,150 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install dependencies
-        run: pip install requests beautifulsoup4
+        run: pip install requests beautifulsoup4 lxml
 
       - name: Generate RSS
         run: |
-          python << 'EOF'
-          import requests
-          from bs4 import BeautifulSoup
-          from xml.sax.saxutils import escape
-          import time
+          python - << 'EOF'
+import requests
+from bs4 import BeautifulSoup
+from xml.sax.saxutils import escape
+import time
+import traceback
+import re
 
-          headers = {
-              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-          }
-          base_url = "https://vechnayamolodost.ru"
-          
-          try:
-              response = requests.get(base_url, headers=headers, timeout=15)
-              response.raise_for_status()
-              soup = BeautifulSoup(response.text, "html.parser")
-          except Exception as e:
-              import traceback
-              print("FETCH MAIN PAGE FAILED")
-              print("TYPE:", type(e))
-              print("REPR:", repr(e))
-              traceback.print_exc()
-              exit(1)
+headers = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+}
 
-          seen = set()
-          items = []
-          links = soup.select('a[href*="/news/"]')
-          
-          for a in links:
-              if len(items) >= 20:
-                  break
-                  
-              title = a.get_text(strip=True)
-              href = a.get("href")
+base_url = "https://vechnayamolodost.ru"
 
-              if not title or not href:
-                  continue
-              if href.startswith("/"):
-                  href = base_url + href
-              if href in seen:
-                  continue
-              seen.add(href)
-              
-              time.sleep(1)
-              desc = ""
-              try:
-                  art_res = requests.get(href, headers=headers, timeout=10)
-                  art_soup = BeautifulSoup(art_res.text, "html.parser")
-                  
-                  # Удаляем мусорные элементы из структуры страницы перед поиском текста
-                  for trash in art_soup.find_all(['nav', 'header', 'footer', 'script', 'style', 'aside']):
-                      trash.decompose()
+try:
+    response = requests.get(base_url, headers=headers, timeout=15)
+    response.raise_for_status()
+    soup = BeautifulSoup(response.text, "html.parser")
+except Exception:
+    print("FETCH MAIN PAGE FAILED")
+    traceback.print_exc()
+    exit(1)
 
-                  # Ищем заголовок, текст новости обычно идет в том же контейнере после него
-                  article_title = art_soup.find('h1')
-                  if article_title:
-                      parent = article_title.find_parent()
-                      # Собираем абзацы, которые длиннее 20 символов
-                      paragraphs = [p.get_text(strip=True) for p in parent.find_all('p') if len(p.get_text(strip=True)) > 20]
-                      full_text = " ".join(paragraphs)
-                      if len(full_text) > 10:
-                          desc = full_text[:500] + "..."
-                  
-                  # Запасной вариант по классу контента
-                  if not desc:
-                      content = art_soup.find('div', class_='text')
-                      if content:
-                          desc = content.get_text(" ", strip=True)[:450] + "..."
-              except:
-                  except Exception as e:
-                      print("ARTICLE FETCH FAILED")
-                      print(repr(e))
+seen = set()
+items = []
 
-              if desc:
-                  # Формируем дату в формате RSS (RFC 822)
-                  pub_date = time.strftime("%a, %d %b %Y %H:%M:%S +0000", time.gmtime())
-                  
-                  items.append(f"""
-              <item>
-                <title>{escape(title)}</title>
-                <link>{escape(href)}</link>
-                <description><![CDATA[{desc}]]></description>
-                <guid isPermaLink="true">{escape(href)}</guid>
-                <pubDate>{pub_date}</pubDate>
-              </item>""")
+# Ищем заголовки h3, под которыми обычно находятся ссылки на новости
+news_headers = soup.find_all(['h2', 'h3'])
 
-          rss = f'''<?xml version="1.0" encoding="UTF-8"?>
-          <rss version="2.0" xmlns:atom="http://w3.org">
-            <channel>
-              <title>Вечная молодость</title>
-              <link>{base_url}</link>
-              <description>Новости науки и медицины</description>
-              <language>ru</language>
-              {''.join(items)}
-            </channel>
-          </rss>'''
+for header in news_headers:
+    if len(items) >= 20:
+        break
+        
+    a = header.find('a') if header.name in ['h2', 'h3'] else header
+    if header.name not in ['h2', 'h3']:
+        # Если ссылка оформлена не внутри h3, ищем ближайшую ссылку
+        a = header if header.name == 'a' else header.find('a')
+        
+    # Альтернативный поиск: берем все ссылки, которые ведут на внутренние страницы (не пустые и не внешние)
+    # Для vechnayamolodost.ru ссылки часто имеют вид /pages/ или числовые ID. Соберем вообще все h3 со ссылками:
+    
+for h3 in soup.find_all('h3'):
+    if len(items) >= 20:
+        break
+    
+    # Ищем ссылку внутри или рядом
+    a = h3.find('a') or h3.find_next('a') or h3.find_parent('a')
+    if not a:
+        continue
+        
+    title = h3.get_text(strip=True)
+    href = a.get("href")
 
-          with open("feed.xml", "w", encoding="utf-8") as f:
-              f.write(rss)
-          EOF
+    if not title or not href:
+        continue
+
+    if href.startswith("/"):
+        href = base_url + href
+    elif not href.startswith("http"):
+        continue
+
+    if href in seen or "vechnayamolodost.ru" not in href:
+        continue
+
+    seen.add(href)
+    desc = ""
+    pub_date_str = ""
+
+    try:
+        art_res = requests.get(href, headers=headers, timeout=10)
+        art_soup = BeautifulSoup(art_res.text, "html.parser")
+
+        # Пытаемся найти дату на странице статьи (ищем паттерны ДД.ММ.ГГГГ)
+        date_match = re.search(r'\b\d{2}\.\d{2}\.\d{4}\b', art_soup.get_text())
+        if date_match:
+            try:
+                parsed_time = time.strptime(date_match.group(0), "%d.%m.%Y")
+                pub_date_str = time.strftime("%a, %d %b %Y 00:00:00 +0000", parsed_time)
+            except ValueError:
+                pass
+
+        # Удаляем лишний мусор из разметки статьи перед анализом текста
+        for trash in art_soup.find_all(['nav', 'header', 'footer', 'script', 'style', 'aside', 'form']):
+            trash.decompose()
+
+        # Ищем основной контент (у вечной молодости статьи часто лежат в div с классом text или body)
+        content_div = art_soup.find('div', class_=re.compile(r'(text|content|body|article)', re.I))
+        
+        if content_div:
+            paragraphs = [p.get_text(strip=True) for p in content_div.find_all('p') if len(p.get_text(strip=True)) > 20]
+            full_text = " ".join(paragraphs)
+            if len(full_text) > 10:
+                desc = full_text[:450] + "..."
+        
+        # Запасной вариант, если специальный div контента не найден
+        if not desc:
+            all_p = [p.get_text(strip=True) for p in art_soup.find_all('p') if len(p.get_text(strip=True)) > 30]
+            if all_p:
+                desc = " ".join(all_p)[:450] + "..."
+
+    except Exception as e:
+        print(f"ARTICLE FETCH FAILED {href}: {repr(e)}")
+        continue
+
+    if not desc:
+        desc = "Нет описания. Перейдите по ссылке для чтения."
+
+    # Если дату вытащить не удалось, ставим текущее время (худший случай)
+    if not pub_date_str:
+        pub_date_str = time.strftime("%a, %d %b %Y %H:%M:%S +0000", time.gmtime())
+
+    items.append(f"""
+<item>
+  <title>{escape(title)}</title>
+  <link>{escape(href)}</link>
+  <description><![CDATA[{desc}]]></description>
+  <guid isPermaLink="true">{escape(href)}</guid>
+  <pubDate>{pub_date_str}</pubDate>
+</item>""")
+
+rss = f'''<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Вечная молодость</title>
+    <link>{base_url}</link>
+    <description>Новости науки и медицины</description>
+    <language>ru</language>
+    {''.join(items)}
+  </channel>
+</rss>'''
+
+with open("feed.xml", "w", encoding="utf-8") as f:
+    f.write(rss)
+
+print("DONE")
+EOF
 
       - name: Commit changes
         run: |
           git config user.name github-actions
           git config user.email github-actions@github.com
           git add feed.xml
-          git commit -m "Full RSS update with CDATA and GUID" || echo "No changes to commit"
-          git push || (echo "PUSH FAILED" && git status && exit 1
-
-      - name: Commit changes
-        run: |
-          git config user.name github-actions
-          git config user.email github-actions@github.com
-          git add feed.xml
-          git status
-          git diff --cached || true
-          git commit -m "RSS update" || echo "NO CHANGES TO COMMIT"
-          git log -1 || true
-          git push
+          git diff --cached --quiet || (git commit -m "RSS update" && git push)
